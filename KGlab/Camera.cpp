@@ -3,7 +3,6 @@
 #include <windows.h>
 #include <gl/GL.h>
 #include <gl/GLU.h>
-#include <cmath>
 
 void Camera::setPosition(double x, double y, double z)
 {
@@ -36,7 +35,7 @@ void Camera::Zoom(OpenGL* sender, MouseWheelEventArg arg)
 	if (arg.value > 0 && camDist >= 100)
 		return;
 
-	camDist += 0.001 * arg.value;
+	camDist += 0.01 * arg.value;
 
 	caclulateCameraPos();
 }
@@ -77,4 +76,3 @@ void Camera::SetUpCamera()
 	glLoadIdentity();
 	gluLookAt(camX, camY, camZ, 0, 0, 0, 0, 0, camNz);
 }
-Camera camera;
