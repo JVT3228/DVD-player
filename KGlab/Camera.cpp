@@ -35,7 +35,7 @@ void Camera::Zoom(OpenGL* sender, MouseWheelEventArg arg)
 	if (arg.value > 0 && camDist >= 100)
 		return;
 
-	camDist += 0.01 * arg.value;
+	camDist += 0.001 * arg.value;
 
 	caclulateCameraPos();
 }

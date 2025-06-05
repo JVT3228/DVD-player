@@ -109,6 +109,7 @@
     <None Include="shaders\vb.frag">
       <Filter>shaders</Filter>
     </None>
+    <None Include="packages.config" />
   </ItemGroup>
   <ItemGroup>
     <Text Include="shaders\f_frac.txt">
