@@ -9,6 +9,8 @@
 #include "MyShaders.h"
 #include "Texture.h"
 #include <cmath>
+#include <mmsystem.h>
+#pragma comment(lib, "winmm.lib") // подключаем winmm
 
 
 #include "ObjLoader.h"
@@ -16,7 +18,69 @@
 
 #include "debout.h"
 
+#include <vector>
+#include <string>
+#include <algorithm>
 
+using namespace std;
+
+
+bool isPlaying = false;
+bool isPaused = false;
+DWORD soundStartTime = 0;
+
+bool isPowerOff = false;
+int visualMode = 0; // 0 - видео, 1 - DVD логотип
+float dvdX = 0.0f, dvdY = 0.0f;
+float dvdVX = 0.25f, dvdVY = 0.15f; // скорость (м/с)
+float dvdSize = 0.15f;
+float dvdR = 1.0f, dvdG = 1.0f, dvdB = 1.0f;
+Texture dvdLogoTex;
+
+vector<string> framePaths;
+int currentFrame = 0;
+float timeSinceLastFrame = 0.0f;
+float frameDuration = 1.0f / 30.0f; // 30 FPS
+Texture videoFrame;
+
+void initFramePaths() {
+	for (int i = 1; i <= 1754; ++i) {
+		stringstream ss;
+		ss << "textures/frames/frame_"
+			<< setw(4) << setfill('0') << i << ".jpg";
+		framePaths.push_back(ss.str());
+	}
+}
+
+void PlayAudio() {
+	if (!isPlaying) {
+		PlaySound(L"sounds/Тайпан_жестокая-змея.wav", NULL, SND_FILENAME | SND_ASYNC);
+		soundStartTime = timeGetTime();
+		isPlaying = true;
+		isPaused = false;
+	}
+}
+
+void PauseAudio() {
+	if (isPlaying && !isPaused) {
+		PlaySound(NULL, 0, 0); // остановить
+		isPaused = true;
+	}
+}
+
+void ResumeAudio() {
+	if (isPaused) {
+		PlaySound(L"sounds/Тайпан_жестокая-змея.wav", NULL, SND_FILENAME | SND_ASYNC);
+		isPaused = false;
+		// нет точного resume, будет играть заново (ограничение PlaySound)
+	}
+}
+
+#include <map>
+#include <chrono>
+
+map<char, chrono::steady_clock::time_point> pressedButtons;
+float pressAnimationDuration = 0.15f; // в секундах
 
 //внутренняя логика "движка"
 #include "MyOGL.h"
@@ -33,14 +97,16 @@ bool alpha = false;
 
 void buildMDV724UBody();
 void buildTray(float offset);
-void buildScreen(int mode);
+void buildScreen();
 void buildButtons();
 void buildDisc(float rotationAngle);
+
+void randomizeColor();
 
 // Состояния модели
 bool isDiscSpinning = false;
 bool isTrayOut = false;
-int screenMode = 0; // 0: "00:00", 1: USB
+//int screenMode = 0; // 0: "00:00", 1: USB
 float trayOffset = 0.0f;
 float discRotation = 0.0f;
 
@@ -65,14 +131,82 @@ void switchModes(OpenGL *sender, KeyEventArg arg)
 		alpha = !alpha;
 		break;
 	case 'P': 
-		isDiscSpinning = !isDiscSpinning; 
+		pressedButtons[key] = std::chrono::steady_clock::now();
+		if (!isPowerOff) {
+			isDiscSpinning = !isDiscSpinning;
+			if (!isPlaying) {
+				PlayAudio();
+			}
+			else if (isPaused) {
+				ResumeAudio();
+			}
+			else {
+				PauseAudio();
+			}
+		}
 		break;
 	case 'E':
-		isTrayOut = !isTrayOut;
-		trayOffset = isTrayOut ? 0.1f : 0.0f;
+		pressedButtons[key] = std::chrono::steady_clock::now();
+		if (!isPowerOff) {
+			isTrayOut = !isTrayOut;
+			// trayOffset = isTrayOut ? 1.0f : 0.0f;
+		}
 		break;
-	case 'U': 
-		screenMode = (screenMode + 1) % 2; 
+	//case 'U': 
+	//	screenMode = (screenMode + 1) % 2; 
+	//	break;
+	case 'O': // Power
+		isPowerOff = !isPowerOff;
+		if (!isPowerOff) {
+			currentFrame = 0;
+			videoFrame.LoadTexture(framePaths[currentFrame]);
+			ResumeAudio();
+			visualMode = 0;
+			isDiscSpinning = true;
+		}
+		else {
+			PauseAudio();
+			videoFrame.LoadTexture("textures/black.png");
+			isDiscSpinning = false;
+		}
+		break;
+	case 'J':
+		pressedButtons[key] = std::chrono::steady_clock::now();
+		if (!isPowerOff) {
+			visualMode = (visualMode == 0) ? 1 : 0;
+			if (visualMode == 1) {
+				PauseAudio();
+				dvdX = -0.1f;
+				dvdY = -0.1f;
+				dvdVX = 0.25f;
+				dvdVY = 0.15f;
+				randomizeColor();
+			}
+			else {
+				ResumeAudio();
+				currentFrame = 0;
+				videoFrame.LoadTexture(framePaths[currentFrame]);
+			}
+		}
+		break;
+	case 'K':
+		pressedButtons[key] = std::chrono::steady_clock::now();
+		if (!isPowerOff) {
+			visualMode = (visualMode == 0) ? 1 : 0;
+			if (visualMode == 1) {
+				PauseAudio();
+				dvdX = -0.1f;
+				dvdY = -0.1f;
+				dvdVX = 0.25f;
+				dvdVY = 0.15f;
+				randomizeColor();
+			}
+			else {
+				ResumeAudio();
+				currentFrame = 0;
+				videoFrame.LoadTexture(framePaths[currentFrame]);
+			}
+		}
 		break;
 	}
 }
@@ -114,12 +248,13 @@ Shader phong_sh;
 Shader vb_sh;
 Shader simple_texture_sh;
 
-Texture stankin_tex, vb_tex, monkey_tex;
+Texture stankin_tex, vb_tex, monkey_tex, disk_tex, tkan_tex, logo_tex;
 
 
 
 void initRender()
 {
+	randomizeColor();
 
 	cassini_sh.VshaderFileName = "shaders/v.vert";
 	cassini_sh.FshaderFileName = "shaders/cassini.frag";
@@ -144,6 +279,9 @@ void initRender()
 	stankin_tex.LoadTexture("textures/stankin.png");
 	vb_tex.LoadTexture("textures/vb.png");
 	monkey_tex.LoadTexture("textures/monkey.png");
+	disk_tex.LoadTexture("textures/disk.png");
+	tkan_tex.LoadTexture("textures/tkan.png");
+	logo_tex.LoadTexture("textures/logo.png");
 
 
 	f.LoadModel("models//monkey.obj_m");
@@ -174,11 +312,17 @@ void initRender()
 	//========================================================
 	   
 	// Загрузка текстур экрана
-	displayTexDefault.LoadTexture("textures/display_default.png"); // "00:00"
-	displayTexUSB.LoadTexture("textures/display_usb.png");        // USB иконка
+	//displayTexDefault.LoadTexture("textures/display_default.png"); // "00:00"
+	//displayTexUSB.LoadTexture("textures/display_usb.png");        // USB иконка
 
 	// Начальная позиция света
 	light.SetPosition(1.0f, 2.0f, 1.0f);
+	
+	dvdLogoTex.LoadTexture("textures/DVD.png");
+	initFramePaths();
+	videoFrame.LoadTexture(framePaths[0]);
+	bool isPowerOff = true;
+	videoFrame.LoadTexture("textures/black.png");
 }
 float view_matrix[16];
 double full_time = 0;
@@ -263,7 +407,7 @@ void Render(double delta_time)
 
 	//============ РИСОВАТЬ ТУТ ==============
 
-	
+
 
 	//квадратик станкина
 
@@ -449,12 +593,72 @@ void Render(double delta_time)
 	// Обновление анимаций
 	if (isDiscSpinning) discRotation += 100.0f * delta_time;
 
+    // Плавная анимация выдвигания и задвигания лотка
+	static float trayTarget = 0.0f;
+	static bool prevTrayOut = isTrayOut;
+	float traySpeed = 1.0f;
+
+	if (isTrayOut != prevTrayOut) {
+		trayTarget = isTrayOut ? 1.0f : 0.0f;
+		prevTrayOut = isTrayOut;
+	}
+
+	if (fabs(trayOffset - trayTarget) > 0.001f) {
+        if (trayOffset < trayTarget) {
+            trayOffset += delta_time * traySpeed;
+            if (trayOffset > trayTarget) trayOffset = trayTarget;
+        } else {
+            trayOffset -= delta_time * traySpeed;
+            if (trayOffset < trayTarget) trayOffset = trayTarget;
+        }
+    }
+
     // Отрисовка компонентов
     buildMDV724UBody();
     buildTray(trayOffset);
-    // buildScreen(screenMode);
-    // buildButtons();
-    // buildDisc(discRotation);
+
+	if (!isPowerOff) {
+		switch (visualMode) {
+		case 0: // обычное видео
+			if (isPlaying && !isPaused) {
+				timeSinceLastFrame += static_cast<float>(delta_time);
+				if (timeSinceLastFrame >= frameDuration) {
+					timeSinceLastFrame = 0.0f;
+					if (currentFrame < framePaths.size() - 1) {
+						currentFrame++;
+						videoFrame.LoadTexture(framePaths[currentFrame]);
+					}
+				}
+			}
+			break;
+		case 1: // DVD логотип
+			dvdX += dvdVX * delta_time;
+			dvdY += dvdVY * delta_time;
+
+			// Границы (в условных координатах)
+			float minX = -0.21f, maxX = 0.21f - dvdSize;
+			float minY = -0.2025f, maxY = 0.2025f - dvdSize;
+
+			if (dvdX < minX || dvdX > maxX) {
+				dvdVX *= -1;
+				dvdX = clamp(dvdX, minX, maxX);
+				randomizeColor();
+			}
+			if (dvdY < minY || dvdY > maxY) {
+				dvdVY *= -1;
+				dvdY = clamp(dvdY, minY, maxY);
+				randomizeColor();
+			}
+			break;
+		}
+	}
+	else {
+		videoFrame.LoadTexture("textures/black.png");
+	}
+
+    buildScreen();
+    buildButtons();
+    buildDisc(discRotation);
 
 	//===============================================
 	
@@ -490,19 +694,25 @@ void Render(double delta_time)
 	//верхний правый угол (ширина_окна - 1, высота_окна - 1)
 
 	
-	std::wstringstream ss;
-	ss << std::fixed << std::setprecision(3);
-	ss << "T - " << (texturing ? L"[вкл]выкл  " : L" вкл[выкл] ") << L"текстур" << std::endl;
-	ss << "L - " << (lightning ? L"[вкл]выкл  " : L" вкл[выкл] ") << L"освещение" << std::endl;
-	ss << "A - " << (alpha ? L"[вкл]выкл  " : L" вкл[выкл] ") << L"альфа-наложение" << std::endl;
-	ss << L"F - Свет из камеры" << std::endl;
-	ss << L"G - двигать свет по горизонтали" << std::endl;
-	ss << L"G+ЛКМ двигать свет по вертекали" << std::endl;
-	ss << L"Коорд. света: (" << std::setw(7) <<  light.x() << "," << std::setw(7) << light.y() << "," << std::setw(7) << light.z() << ")" << std::endl;
-	ss << L"Коорд. камеры: (" << std::setw(7) << camera.x() << "," << std::setw(7) << camera.y() << "," << std::setw(7) << camera.z() << ")" << std::endl;
-	ss << L"Параметры камеры: R=" << std::setw(7) << camera.distance() << ",fi1=" << std::setw(7) << camera.fi1() << ",fi2=" << std::setw(7) << camera.fi2() << std::endl;
-	ss << L"delta_time: " << std::setprecision(5)<< delta_time << std::endl;
-	ss << L"full_time: " << std::setprecision(2) << full_time << std::endl;
+	wstringstream ss;
+	ss << fixed << setprecision(3);
+	ss << "T - " << (texturing ? L"[вкл]выкл  " : L" вкл[выкл] ") << L"текстур" << endl;
+	ss << "L - " << (lightning ? L"[вкл]выкл  " : L" вкл[выкл] ") << L"освещение" << endl;
+	ss << "A - " << (alpha ? L"[вкл]выкл  " : L" вкл[выкл] ") << L"альфа-наложение" << endl;
+	ss << "E - " << (isTrayOut ? L"[открыт]закрыть  " : L"открыть[закрыт] ") << L"лоток" << endl;
+	ss << "P - " << (isDiscSpinning ? L"[вращается]стоп  " : L"вращать[стоп] ") << L"диск" << endl;
+	//ss << "U - " << (screenMode == 0 ? L"[00:00]USB  " : L"00:00[USB] ") << L"экран" << endl; 
+	ss << "O - Power: " << (isPowerOff ? L"вкл[выкл]  " : L" [вкл]выкл ") << endl;
+	ss << "J - Prev  |  K - Next" << L"  (Режим: ";
+	ss << (visualMode == 0 ? L"Видео" : L"DVD логотип") << L")" << endl;
+	ss << L"F - Свет из камеры" << endl;
+	ss << L"G - двигать свет по горизонтали" << endl;
+	ss << L"G+ЛКМ двигать свет по вертекали" << endl;
+	ss << L"Коорд. света: (" << setw(7) <<  light.x() << "," << setw(7) << light.y() << "," << setw(7) << light.z() << ")" << endl;
+	ss << L"Коорд. камеры: (" << setw(7) << camera.x() << "," << setw(7) << camera.y() << "," << setw(7) << camera.z() << ")" << endl;
+	ss << L"Параметры камеры: R=" << setw(7) << camera.distance() << ",fi1=" << setw(7) << camera.fi1() << ",fi2=" << setw(7) << camera.fi2() << endl;
+	ss << L"delta_time: " << setprecision(5)<< delta_time << endl;
+	ss << L"full_time: " << setprecision(2) << full_time << endl;
 
 	
 	text.setPosition(10, gl.getHeight() - 10 - 180);
@@ -599,13 +809,13 @@ void drawCylinder(float radius, float height, int slices = 24) {
 
 void buildMDV724UBody() {
 	// Матовый чёрный пластик (слегка светлее для видимости света)
-	float amb[] = { 0.13f, 0.13f, 0.13f, 1.0f };
-	float dif[] = { 0.18f, 0.18f, 0.18f, 1.0f };
-	float spec[] = { 0.04f, 0.04f, 0.04f, 1.0f };
+	float amb[] = { 0.25f, 0.25f, 0.25f, 1.0f };
+	float dif[] = { 0.5f, 0.5f, 0.5f, 1.0f };
+	float spec[] = { 0.3f, 0.3f, 0.3f, 1.0f };
 	glMaterialfv(GL_FRONT, GL_AMBIENT, amb);
 	glMaterialfv(GL_FRONT, GL_DIFFUSE, dif);
 	glMaterialfv(GL_FRONT, GL_SPECULAR, spec);
-	glMaterialf(GL_FRONT, GL_SHININESS, 8.0f);
+	glMaterialf(GL_FRONT, GL_SHININESS, 20.0f);
 
 	// Размеры корпуса (увеличены в 3 раза)
 	float w = 0.75f, h = 0.525f, d = 0.12f;
@@ -614,14 +824,14 @@ void buildMDV724UBody() {
 	float z0 = -d / 2, z1 = d / 2;
 
 	// Размеры выреза на передней панели (увеличены в 3 раза)
-	float cut_x0 = -0.23f, cut_x1 = -0.09f; // по X
-	float cut_z0 = -0.03f, cut_z1 = 0.03f;  // по Z
+	float cut_x0 = -0.298f, cut_x1 = -0.093f; // по X
+	float cut_z0 = 0.0f, cut_z1 = 0.018f;  // по Z
 	float y_front = y1;
 
     // Включаем текстурирование и привязываем текстуру корпуса
     if (texturing) {
 		glEnable(GL_TEXTURE_2D);
-		stankin_tex.Bind();
+		tkan_tex.Bind();
 	} else {
 		glDisable(GL_TEXTURE_2D);
 	}
@@ -663,14 +873,6 @@ void buildMDV724UBody() {
     glEnd();
 
 	// Остальные грани корпуса (без изменений, только размеры увеличены)
-	// Верхняя грань
-    glBegin(GL_QUADS);
-	glNormal3f(0, 0, 1);
-	glTexCoord2f(0, 1); glVertex3f(x0, y1, z1);
-	glTexCoord2f(1, 1); glVertex3f(x1, y1, z1);
-	glTexCoord2f(1, 0); glVertex3f(x1, y0, z1);
-	glTexCoord2f(0, 0); glVertex3f(x0, y0, z1);
-	glEnd();
 	// Нижняя грань
     glBegin(GL_QUADS);
 	glNormal3f(0, 0, -1);
@@ -703,33 +905,75 @@ void buildMDV724UBody() {
 	glTexCoord2f(1, 0); glVertex3f(x1, y0, z0);
 	glTexCoord2f(0, 0); glVertex3f(x0, y0, z0);
 	glEnd();
+	// Верхняя грань
+	glBegin(GL_QUADS);
+	glNormal3f(0, 0, 1);
+	glTexCoord2f(0, 1); glVertex3f(x0, y1, z1);
+	glTexCoord2f(1, 1); glVertex3f(x1, y1, z1);
+	glTexCoord2f(1, 0); glVertex3f(x1, y0, z1);
+	glTexCoord2f(0, 0); glVertex3f(x0, y0, z1);
+	glEnd();
+
+	// --- ЛОГОТИП поверх крышки ---
+    glEnable(GL_TEXTURE_2D);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    logo_tex.Bind();
+
+    // Размер и положение логотипа (по центру крышки, 60% от размера)
+    float logoW = (x1 - x0) * 0.6f;
+    float logoH = (y1 - y0) * 0.6f;
+    float logoX0 = (x0 + x1) / 2 - logoW / 2;
+    float logoX1 = logoX0 + logoW;
+    float logoY0 = (y0 + y1) / 2 - logoH / 2;
+    float logoY1 = logoY0 + logoH;
+
+    glColor4f(1, 1, 1, 0.85f); // прозрачность логотипа
+    glBegin(GL_QUADS);
+    glNormal3f(0, 0, 1);
+    glTexCoord2f(1, 0); glVertex3f(logoX0, logoY1, z1 + 0.0001f);
+    glTexCoord2f(0, 0); glVertex3f(logoX1, logoY1, z1 + 0.0001f);
+    glTexCoord2f(0, 1); glVertex3f(logoX1, logoY0, z1 + 0.0001f);
+    glTexCoord2f(1, 1); glVertex3f(logoX0, logoY0, z1 + 0.0001f);
+    glEnd();
+
+    glDisable(GL_BLEND);
 
     glDisable(GL_TEXTURE_2D);
 	glPopMatrix();
 }
 void buildTray(float offset) {
+	float trayAmb[] = { 0.22f, 0.22f, 0.22f, 1.0f };
+	float trayDif[] = { 0.6f, 0.6f, 0.6f, 1.0f };
+	float traySpec[] = { 0.4f, 0.4f, 0.4f, 1.0f };
+	glMaterialfv(GL_FRONT, GL_AMBIENT, trayAmb);
+	glMaterialfv(GL_FRONT, GL_DIFFUSE, trayDif);
+	glMaterialfv(GL_FRONT, GL_SPECULAR, traySpec);
+	glMaterialf(GL_FRONT, GL_SHININESS, 40.0f);
+
     // Размеры выреза на передней панели корпуса (должны совпадать с корпусом)
-    float cut_x0 = -0.23f, cut_x1 = -0.09f; // по X
-    float cut_z0 = -0.03f, cut_z1 = 0.03f;  // по Z
+    float cut_x0 = -0.3f, cut_x1 = -0.09f; // по X (как в корпусе)
+    float cut_z0 = -0.01f, cut_z1 = 0.01f;  // по Z (как в корпусе)
     float y_front = 0.525f / 2.0f; // y1 корпуса
 
     // Размеры лотка
-    float trayW = cut_x1 - cut_x0 + 0.02f; // чуть шире выреза
-    float trayD = 0.18f;                   // глубина лотка (чуть больше корпуса)
-    float trayH = 0.012f;                  // толщина платформы
-    float rimH  = 0.018f;                  // высота бортиков
-    float diskR = 0.06f;                   // радиус отверстия под диск
-    float rimT = 0.012f;                   // толщина бортика
+    float trayW = (cut_x1 - cut_x0) - 0.004f; // чуть уже выреза (по 2 мм с каждой стороны)
+    float trayD = 0.18f;                      // глубина лотка (можно оставить прежней)
+    float trayH = 0.012f;                     // толщина платформы
+    float rimH  = 0.018f;                     // высота бортиков
+    float diskR = 0.075f;                      // радиус отверстия под диск
+    float rimT = 0.012f;                      // толщина бортика
 
-    // Позиция лотка: по центру выреза, чуть ниже верхней крышки
-    float trayX = (cut_x0 + cut_x1) / 2.0f;
-    float trayZ = (cut_z0 + cut_z1) / 2.0f + offset * 3.0f; // теперь Z — по центру выреза
-    float trayY = y_front - trayD / 2.0f - 0.002f; // лоток выдвигается вдоль Y (вперёд)
+	float cut_height = cut_z1 - cut_z0;
+	float trayX = (cut_x0 + cut_x1) / 2.0f;
+	float trayZ = (cut_z0 + cut_z1); // по центру выреза по Z
+	float trayY = y_front - trayD + offset * trayD; // trayH вверх, чтобы верхняя грань совпала с нижней гранью выреза
+
+    // trayOffset теперь реально управляет выдвижением (0 — полностью задвинут, 1 — полностью выдвинут)
+    float trayMove = offset * trayD; // trayD положительно — движение вперёд (наружу корпуса)
 
     glPushMatrix();
     glTranslatef(trayX, trayY, trayZ);
-    // Разворот на 180 по вертикали: отражаем по оси Y (глубина)
-    glScalef(1.0f, -1.0f, 1.0f); // инверсия глубины
 
     // Цвет лотка
     glColor4f(0.22f, 0.22f, 0.22f, 1.0f);
@@ -738,12 +982,12 @@ void buildTray(float offset) {
     float x0 = -trayW/2, x1 = trayW/2;
     float y0 = 0.0f, y1 = trayD;
     float z = 0.0f;
-    glBegin(GL_QUADS);
-    glVertex3f(x0, y0, z);
-    glVertex3f(x1, y0, z);
-    glVertex3f(x1, y1, z);
-    glVertex3f(x0, y1, z);
-    glEnd();
+	// Объёмная платформа как прямоугольный куб
+	glPushMatrix();
+	glTranslatef(0, trayD / 2.0f, trayH / 4.0f - 0.004f);
+	glScalef(trayW, trayD, trayH / 4.0f);
+	drawSolidCube(1.0);
+	glPopMatrix();
 
     // Отверстие под диск (в центре платформы)
     glColor4f(0.1f, 0.1f, 0.1f, 1.0f);
@@ -771,43 +1015,82 @@ void buildTray(float offset) {
     glScalef(rimT, trayD, rimH);
     drawSolidCube(1.0);
     glPopMatrix();
-    // Задняя (теперь будет спереди после отражения)
+    // Задняя 
     glPushMatrix();
     glTranslatef(0, trayD - rimT / 2, rimH / 2);
     glScalef(trayW, rimT, rimH);
     drawSolidCube(1.0);
     glPopMatrix();
     // (Передний бортик отсутствует)
+	glPushMatrix();
+	glTranslatef(0, rimT / 10.0f, rimH / 2.0f);
+	glScalef(trayW, rimT / 10.0f, rimH);
+	drawSolidCube(1.0);
+	glPopMatrix();
 
     glPopMatrix();
 }
 
-void buildScreen(int mode) {
+void buildScreen() {
 	// Полупрозрачный зелёный
 	glEnable(GL_BLEND);
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-	float amb[] = { 0.0f, 0.25f, 0.0f, 0.5f };
-	float dif[] = { 0.0f, 0.7f, 0.0f, 0.5f };
-	float spec[] = { 0.2f, 0.8f, 0.2f, 0.5f };
-	glMaterialfv(GL_FRONT, GL_AMBIENT, amb);
-	glMaterialfv(GL_FRONT, GL_DIFFUSE, dif);
-	glMaterialfv(GL_FRONT, GL_SPECULAR, spec);
-	glMaterialf(GL_FRONT, GL_SHININESS, 30.0f);
+	//float amb[] = { 0.0f, 0.25f, 0.0f, 0.5f };
+	//float dif[] = { 0.0f, 0.7f, 0.0f, 0.5f };
+	//float spec[] = { 0.2f, 0.8f, 0.2f, 0.5f };
+	//glMaterialfv(GL_FRONT, GL_AMBIENT, amb);
+	//glMaterialfv(GL_FRONT, GL_DIFFUSE, dif);
+	//glMaterialfv(GL_FRONT, GL_SPECULAR, spec);
+	//glMaterialf(GL_FRONT, GL_SHININESS, 30.0f);
 
-	// Явный цвет экрана (полупрозрачный зелёный)
-	glColor4f(0.0f, 0.7f, 0.0f, 0.5f);
+	//// Явный цвет экрана (полупрозрачный зелёный)
+	//glColor4f(0.0f, 0.7f, 0.0f, 0.5f);
 
 	glEnable(GL_TEXTURE_2D);
-	(mode == 0) ? displayTexDefault.Bind() : displayTexUSB.Bind();
+	//(mode == 0) ? displayTexDefault.Bind() : displayTexUSB.Bind();
+
+	videoFrame.Bind();
 
 	glPushMatrix();
-	glTranslatef(0.21f, 0.03f, 0.105f); // 0.07*3, 0.01*3, 0.035*3
-	glBegin(GL_QUADS);
-	glTexCoord2f(1, 1); glVertex3f(0.075f, 0.0225f, 0); // 0.025*3, 0.0075*3
-	glTexCoord2f(1, 0); glVertex3f(0.075f, -0.0225f, 0);
-	glTexCoord2f(0, 0); glVertex3f(-0.075f, -0.0225f, 0);
-	glTexCoord2f(0, 1); glVertex3f(-0.075f, 0.0225f, 0);
-	glEnd();
+	glTranslatef(0.0f, 0.05f, 0.24f); // 0.07*3, 0.01*3, 0.035*3
+
+	glDisable(GL_LIGHTING);
+
+	if (visualMode == 1) {
+		dvdLogoTex.Bind();
+		glColor3f(dvdR, dvdG, dvdB);
+		glRotatef(90, 1, 0, 0);
+		glBegin(GL_QUADS);
+		glTexCoord2f(1, 1); glVertex3f(dvdX + dvdSize, dvdY + dvdSize, 0.2f);
+		glTexCoord2f(1, 0); glVertex3f(dvdX + dvdSize, dvdY, -0.15f);
+		glTexCoord2f(0, 0); glVertex3f(dvdX, dvdY, -0.15f);
+		glTexCoord2f(0, 1); glVertex3f(dvdX, dvdY + dvdSize, 0.2f);
+		glEnd();
+	}
+	else {
+		glColor4f(1.2f, 1.2f, 1.2f, 1.0f);
+		glBegin(GL_QUADS);
+		glTexCoord2f(1, 1); glVertex3f(-0.21f, -0.2625f, 0.2f);
+		glTexCoord2f(1, 0); glVertex3f(-0.21f, 0.2025f, -0.15f);
+		glTexCoord2f(0, 0); glVertex3f(0.21f, 0.2025f, -0.15f);
+		glTexCoord2f(0, 1); glVertex3f(0.21f, -0.2625f, 0.2f);
+		glEnd();
+
+		// Чёрная рамка для основного экрана
+		glDisable(GL_TEXTURE_2D);
+		glColor3f(0.0f, 0.0f, 0.0f);
+		glLineWidth(2.0f);
+		glBegin(GL_LINE_LOOP);
+		glVertex3f(-0.21f, -0.2625f, 0.2f);
+		glVertex3f(-0.21f, 0.2025f, -0.15f);
+		glVertex3f(0.21f, 0.2025f, -0.15f);
+		glVertex3f(0.21f, -0.2625f, 0.2f);
+		glEnd();
+		glEnable(GL_TEXTURE_2D);
+	}
+
+	glEnable(GL_LIGHTING);
+
 	glPopMatrix();
 
 	glDisable(GL_TEXTURE_2D);
@@ -827,23 +1110,40 @@ void buildButtons() {
 	// Явный цвет кнопок (тёмно-серый)
 	glColor4f(0.22f, 0.22f, 0.22f, 1.0f);
 
-	// Кнопки: Power, Play, Stop, Prev, Next, Eject, USB
-	float startX = -0.24f; // -0.08*3
-	float stepX = 0.09f;   // 0.03*3
-	float y = 0.21f;       // 0.07*3
-	float z = 0.066f;      // 0.022*3
-	for (int i = 0; i < 7; ++i) {
+	// Кнопки: Power, Play\Stop, Eject, Prev, Next
+	const char buttonKeys[7] = { '-', '-', 'O', 'P', 'E', 'J', 'K'};
+	float startX = -0.24f;
+	float stepX = 0.09f;
+	float y = 0.2625f;
+	float z = 0.0f;
+
+	auto now = std::chrono::steady_clock::now();
+
+	for (int i = 3; i < 7; ++i) {
+		float pressOffset = 0.0f;
+
+		if (i > 2 && pressedButtons.count(buttonKeys[i])) {
+			auto elapsed = std::chrono::duration<float>(
+				now - pressedButtons[buttonKeys[i]]).count();
+
+			if (elapsed < pressAnimationDuration) {
+				float t = 1.0f - (elapsed / pressAnimationDuration);
+				pressOffset = 0.005f * t;
+			}
+		}
+
 		glPushMatrix();
-		glTranslatef(startX + i * stepX, y, z);
-		glScalef(0.036f, 0.036f, 0.036f); // 0.012*3
+		glTranslatef(startX + i * stepX, y - pressOffset, z - 0.025f);
+		glRotatef(90, 1, 0, 0);
+		glScalef(0.036f, 0.036f, 0.012f);
 		drawSolidCube(1.0f);
 		glPopMatrix();
 	}
 	// Индикатор (ярко-зелёный, полупрозрачный)
 	glEnable(GL_BLEND);
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-	float ambG[] = { 0.0f, 0.5f, 0.0f, 0.6f };
-	float difG[] = { 0.0f, 1.0f, 0.0f, 0.6f };
+	float ambG[] = { isPowerOff ? 0.5f : 0.0f, isPowerOff ? 0.0f : 0.5f, 0.0f, 0.6f };
+	float difG[] = { isPowerOff ? 1.0f : 0.0f, isPowerOff ? 0.0f : 1.0f, 0.0f, 0.6f };
 	float specG[] = { 0.2f, 1.0f, 0.2f, 0.6f };
 	glMaterialfv(GL_FRONT, GL_AMBIENT, ambG);
 	glMaterialfv(GL_FRONT, GL_DIFFUSE, difG);
@@ -852,7 +1152,8 @@ void buildButtons() {
 	// Явный цвет индикатора (ярко-зелёный, полупрозрачный)
 	glColor4f(0.0f, 1.0f, 0.0f, 0.6f);
 	glPushMatrix();
-	glTranslatef(0.33f, 0.036f, 0.066f); // 0.11*3, 0.012*3, 0.022*3
+	glTranslatef(0.33f, y, z + 0.03f); // 0.11*3, 0.012*3, 0.022*3
+	glRotatef(90, 1, 0, 0);
 	drawCylinder(0.018f, 0.024f); // 0.006*3, 0.008*3
 	glPopMatrix();
 	glDisable(GL_BLEND);
@@ -868,12 +1169,43 @@ void buildDisc(float rotationAngle) {
     glMaterialfv(GL_FRONT, GL_SPECULAR, spec);
     glMaterialf(GL_FRONT, GL_SHININESS, 120.0f);
 
-    // Явный цвет диска (серебристый)
-    glColor4f(0.8f, 0.8f, 0.8f, 1.0f);
+    // Цвет диска (серебристый)
+    glColor4f(0.8f, 0.8f, 0.8f, 0.5f);
 
 	glPushMatrix();
-	glTranslatef(-0.18f, 0.0f, 0.075f + trayOffset * 3.0f); // -0.06*3, 0, 0.025*3 + trayOffset*3
-	glRotatef(rotationAngle, 0, 1, 0);
-	drawCylinder(0.18f, 0.006f, 48); // 0.06*3, 0.002*3
+	glTranslatef(-0.1945f, 0.173f + trayOffset * 0.18f, 0.0015f);
+	glRotatef(rotationAngle, 0, 0, 1);
+
+	// Включаем текстурирование
+	if (texturing) {
+		glEnable(GL_TEXTURE_2D);
+		disk_tex.Bind();
+	}
+	else {
+		glDisable(GL_TEXTURE_2D);
+	}
+
+    // Рисуем диск с текстурой
+    float radius = 0.075f;
+    int sectors = 64;
+    float z = 0.0f;
+    glBegin(GL_TRIANGLE_FAN);
+    glNormal3f(0, 0, 1);
+    glTexCoord2f(0.5f, 0.5f); glVertex3f(0, 0, z); // центр
+    for (int i = 0; i <= sectors; ++i) {
+        float angle = 2.0f * 3.1415926f * i / sectors;
+        float x = cos(angle) * radius;
+        float y = sin(angle) * radius;
+        glTexCoord2f(0.5f + 0.5f * cos(angle), 0.5f + 0.5f * sin(angle));
+        glVertex3f(x, y, z);
+    }
+    glEnd();
+
 	glPopMatrix();
+}
+
+void randomizeColor() {
+	dvdR = static_cast<float>(rand()) / RAND_MAX * 0.8f + 0.2f;
+	dvdG = static_cast<float>(rand()) / RAND_MAX * 0.8f + 0.2f;
+	dvdB = static_cast<float>(rand()) / RAND_MAX * 0.8f + 0.2f;
 }
