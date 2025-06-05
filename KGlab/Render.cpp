@@ -36,8 +36,8 @@ bool texturing = true;
 bool lightning = true;
 bool alpha = false;
 
-//void DrawPlasmaScreen();
-//void DrawButtonHighlight(float x, float y, float z, bool active, bool isPower);
+void DrawPlasmaScreen();
+void DrawButtonHighlight(float x, float y, float z, bool active, bool isPower);
 
 //переключение режимов освещения, текстурирования, альфаналожения
 void switchModes(OpenGL* sender, KeyEventArg arg)
@@ -471,11 +471,11 @@ void DrawDVDCase() {
     glPopMatrix();
     glDisable(GL_TEXTURE_2D);
 
-    //// --- Индикаторы нажатия кнопок ---
-    //DrawButtonHighlight(xPanelLeft, yBtn, btnZ, gl.isKeyPressed('4'), false);
-    //DrawButtonHighlight(x2, yBtn, btnZ, gl.isKeyPressed('2'), false);
-    //DrawButtonHighlight(x3, yBtn, btnZ, gl.isKeyPressed('3'), false);
-    //DrawButtonHighlight(x4, y4, btnZ, gl.isKeyPressed('1'), true); // POWER — красный индикатор
+    // --- Индикаторы нажатия кнопок ---
+    DrawButtonHighlight(xPanelLeft, yBtn, btnZ, gl.isKeyPressed('4'), false);
+    DrawButtonHighlight(x2, yBtn, btnZ, gl.isKeyPressed('2'), false);
+    DrawButtonHighlight(x3, yBtn, btnZ, gl.isKeyPressed('3'), false);
+    DrawButtonHighlight(x4, y4, btnZ, gl.isKeyPressed('1'), true); // POWER — красный индикатор
     glPopMatrix();
 }
 
@@ -543,7 +543,7 @@ void Render(double delta_time)
     DrawDVDCase();
     DrawTrayDepot();
     DrawTray(trayPos);
-    //DrawPlasmaScreen(); // рисуем экран
+    DrawPlasmaScreen(); // рисуем экран
 
 
 
@@ -850,103 +850,128 @@ void Render(double delta_time)
 
 }
 
-//// --- Отрисовка вертикального экрана (плазма) ---
-//void DrawPlasmaScreen() {
-//    glPushMatrix();
-//    // Увеличенный экран: строго над DVD-плеером, квадрат, масштаб x3
-//    glTranslatef(0.0f, 0.0f, 1.15f); // по центру, над плеером
-//    glRotatef(-90, 1, 0, 0);
-//    glScalef(1.5f, 1.0f, 1.0f); // x3 от исходного (0.5 -> 1.5)
-//    // Квадратная рамка
-//    glColor3f(0.1f, 0.1f, 0.15f);
-//    float h = 0.5f, w = 0.5f; // квадрат
-//    glBegin(GL_QUADS);
-//    glVertex3f(-w, -h, 0.01f); glVertex3f(w, -h, 0.01f); glVertex3f(w, h, 0.01f); glVertex3f(-w, h, 0.01f);
-//    glEnd();
-//    // Экран
-//    glColor3f(1, 1, 1);
-//    glEnable(GL_TEXTURE_2D);
-//    glBindTexture(GL_TEXTURE_2D, 0);
-//    glBegin(GL_QUADS);
-//    glTexCoord2f(0, 0); glVertex3f(-w+0.02f, -h+0.02f, 0.02f);
-//    glTexCoord2f(1, 0); glVertex3f(w-0.02f, -h+0.02f, 0.02f);
-//    glTexCoord2f(1, 1); glVertex3f(w-0.02f, h-0.02f, 0.02f);
-//    glTexCoord2f(0, 1); glVertex3f(-w+0.02f, h-0.02f, 0.02f);
-//    glEnd();
-//    glDisable(GL_TEXTURE_2D);
-//    glPopMatrix();
-//}
-//
-//// --- Обработка кнопок управления DVD ---
-//void HandleDVDKeys() {
-//    static bool prevPower = false, prevPlay = false, prevStop = false;
-//    if (gl.isKeyPressed('1')) { // POWER
-//        if (!prevPower) { powerOn = !powerOn; dvdState = powerOn ? DVD_STOP : DVD_OFF; }
-//        prevPower = true;
-//    } else prevPower = false;
-//    if (!powerOn) return;
-//    if (gl.isKeyPressed('2')) { // PLAY/PAUSE
-//        if (!prevPlay) {
-//            if (dvdState == DVD_PLAY) dvdState = DVD_PAUSE;
-//            else if (dvdState == DVD_PAUSE || dvdState == DVD_STOP) dvdState = DVD_PLAY;
-//        }
-//        prevPlay = true;
-//    } else prevPlay = false;
-//    if (gl.isKeyPressed('3')) { // STOP
-//        if (!prevStop) { dvdState = DVD_STOP; currentSlide = 0; }
-//        prevStop = true;
-//    } else prevStop = false;
-//}
-//
-//// --- Визуальная индикация кнопок (цвет) ---
-//void DrawButtonHighlight(float x, float y, float z, bool active, bool isPower)
-//{
-//    if (!active) return;
-//    if (isPower) {
-//        // Красный индикатор для POWER
-//        glColor3f(1.0f, 0.2f, 0.2f);
-//        glLineWidth(7.0f);
-//        glBegin(GL_LINE_LOOP);
-//        for (int i = 0; i < 32; ++i) {
-//            float t = 2.0f * 3.1415926f * i / 32;
-//            float r = 0.034f;
-//            glVertex3f(x + 0.025f + r * cosf(t), y + 0.025f + r * sinf(t), z + 0.005f);
-//        }
-//        glEnd();
-//        glEnable(GL_BLEND);
-//        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-//        glColor4f(1.0f, 0.2f, 0.2f, 0.28f);
-//        glBegin(GL_TRIANGLE_FAN);
-//        glVertex3f(x + 0.025f, y + 0.025f, z + 0.0045f);
-//        for (int i = 0; i <= 32; ++i) {
-//            float t = 2.0f * 3.1415926f * i / 32;
-//            float r = 0.027f;
-//            glVertex3f(x + 0.025f + r * cosf(t), y + 0.025f + r * sinf(t), z + 0.0045f);
-//        }
-//        glEnd();
-//        glDisable(GL_BLEND);
-//    } else {
-//        // Зелёный индикатор для остальных
-//        glColor3f(0.2f, 1.0f, 0.2f); // ярко-зелёный
-//        glLineWidth(6.0f);
-//        glBegin(GL_LINE_LOOP);
-//        for (int i = 0; i < 32; ++i) {
-//            float t = 2.0f * 3.1415926f * i / 32;
-//            float r = 0.028f;
-//            glVertex3f(x + 0.025f + r * cosf(t), y + 0.025f + r * sinf(t), z + 0.004f);
-//        }
-//        glEnd();
-//        glEnable(GL_BLEND);
-//        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-//        glColor4f(0.2f, 1.0f, 0.2f, 0.25f);
-//        glBegin(GL_TRIANGLE_FAN);
-//        glVertex3f(x + 0.025f, y + 0.025f, z + 0.0035f);
-//        for (int i = 0; i <= 32; ++i) {
-//            float t = 2.0f * 3.1415926f * i / 32;
-//            float r = 0.022f;
-//            glVertex3f(x + 0.025f + r * cosf(t), y + 0.025f + r * sinf(t), z + 0.0035f);
-//        }
-//        glEnd();
-//        glDisable(GL_BLEND);
-//    }
-//}
+// --- Слайдшоу (массив текстур) ---
+#include <vector>
+#include <string>
+std::vector<Texture> slides;
+double slideTimer = 0.0;
+double slideInterval = 2.0; // секунд на слайд
+
+// --- Загрузка слайдов (вызывать в initRender) ---
+// void LoadSlides() {
+//     slides.clear();
+//     std::vector<std::string> files = {
+//         "textures/slide1.png",
+//         "textures/slide2.png",
+//         "textures/slide3.png"
+//     };
+//     for (auto& f : files) {
+//         Texture t; t.LoadTexture(f.c_str());
+//         slides.push_back(t);
+//     }
+// }
+
+// --- Отрисовка вертикального экрана (плазма) ---
+void DrawPlasmaScreen() {
+    glPushMatrix();
+    // Увеличенный экран: строго над DVD-плеером, квадрат, масштаб x3
+    glTranslatef(0.0f, 0.0f, 1.15f); // по центру, над плеером
+    glRotatef(-90, 1, 0, 0);
+    glScalef(1.5f, 1.0f, 1.0f); // x3 от исходного (0.5 -> 1.5)
+    // Квадратная рамка
+    glColor3f(0.1f, 0.1f, 0.15f);
+    float h = 0.5f, w = 0.5f; // квадрат
+    glBegin(GL_QUADS);
+    glVertex3f(-w, -h, 0.01f); glVertex3f(w, -h, 0.01f); glVertex3f(w, h, 0.01f); glVertex3f(-w, h, 0.01f);
+    glEnd();
+    // Экран
+    glColor3f(1, 1, 1);
+    glEnable(GL_TEXTURE_2D);
+    if (powerOn && !slides.empty() && dvdState != DVD_OFF) {
+        slides[currentSlide].Bind();
+    } else {
+        glBindTexture(GL_TEXTURE_2D, 0);
+    }
+    glBegin(GL_QUADS);
+    glTexCoord2f(0, 0); glVertex3f(-w+0.02f, -h+0.02f, 0.02f);
+    glTexCoord2f(1, 0); glVertex3f(w-0.02f, -h+0.02f, 0.02f);
+    glTexCoord2f(1, 1); glVertex3f(w-0.02f, h-0.02f, 0.02f);
+    glTexCoord2f(0, 1); glVertex3f(-w+0.02f, h-0.02f, 0.02f);
+    glEnd();
+    glDisable(GL_TEXTURE_2D);
+    glPopMatrix();
+}
+
+// --- Обработка кнопок управления DVD ---
+void HandleDVDKeys() {
+    static bool prevPower = false, prevPlay = false, prevStop = false;
+    if (gl.isKeyPressed('1')) { // POWER
+        if (!prevPower) { powerOn = !powerOn; dvdState = powerOn ? DVD_STOP : DVD_OFF; }
+        prevPower = true;
+    } else prevPower = false;
+    if (!powerOn) return;
+    if (gl.isKeyPressed('2')) { // PLAY/PAUSE
+        if (!prevPlay) {
+            if (dvdState == DVD_PLAY) dvdState = DVD_PAUSE;
+            else if (dvdState == DVD_PAUSE || dvdState == DVD_STOP) dvdState = DVD_PLAY;
+        }
+        prevPlay = true;
+    } else prevPlay = false;
+    if (gl.isKeyPressed('3')) { // STOP
+        if (!prevStop) { dvdState = DVD_STOP; currentSlide = 0; }
+        prevStop = true;
+    } else prevStop = false;
+}
+
+// --- Визуальная индикация кнопок (цвет) ---
+void DrawButtonHighlight(float x, float y, float z, bool active, bool isPower)
+{
+    if (!active) return;
+    if (isPower) {
+        // Красный индикатор для POWER
+        glColor3f(1.0f, 0.2f, 0.2f);
+        glLineWidth(7.0f);
+        glBegin(GL_LINE_LOOP);
+        for (int i = 0; i < 32; ++i) {
+            float t = 2.0f * 3.1415926f * i / 32;
+            float r = 0.034f;
+            glVertex3f(x + 0.025f + r * cosf(t), y + 0.025f + r * sinf(t), z + 0.005f);
+        }
+        glEnd();
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        glColor4f(1.0f, 0.2f, 0.2f, 0.28f);
+        glBegin(GL_TRIANGLE_FAN);
+        glVertex3f(x + 0.025f, y + 0.025f, z + 0.0045f);
+        for (int i = 0; i <= 32; ++i) {
+            float t = 2.0f * 3.1415926f * i / 32;
+            float r = 0.027f;
+            glVertex3f(x + 0.025f + r * cosf(t), y + 0.025f + r * sinf(t), z + 0.0045f);
+        }
+        glEnd();
+        glDisable(GL_BLEND);
+    } else {
+        // Зелёный индикатор для остальных
+        glColor3f(0.2f, 1.0f, 0.2f); // ярко-зелёный
+        glLineWidth(6.0f);
+        glBegin(GL_LINE_LOOP);
+        for (int i = 0; i < 32; ++i) {
+            float t = 2.0f * 3.1415926f * i / 32;
+            float r = 0.028f;
+            glVertex3f(x + 0.025f + r * cosf(t), y + 0.025f + r * sinf(t), z + 0.004f);
+        }
+        glEnd();
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        glColor4f(0.2f, 1.0f, 0.2f, 0.25f);
+        glBegin(GL_TRIANGLE_FAN);
+        glVertex3f(x + 0.025f, y + 0.025f, z + 0.0035f);
+        for (int i = 0; i <= 32; ++i) {
+            float t = 2.0f * 3.1415926f * i / 32;
+            float r = 0.022f;
+            glVertex3f(x + 0.025f + r * cosf(t), y + 0.025f + r * sinf(t), z + 0.0035f);
+        }
+        glEnd();
+        glDisable(GL_BLEND);
+    }
+}
